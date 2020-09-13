@@ -1,6 +1,7 @@
 #--------clean enviroment-------------
 rm(list=ls(all.names=TRUE))
-#---------load this packeges,if miss one, please install first
+#---------------functions-------------
+#--------- packeges required,if miss one, please install first
 loadLibraries <- function(){
   library(shiny)
   library(shinyFiles)
@@ -15,7 +16,6 @@ loadLibraries <- function(){
   
   options(shiny.maxRequestSize=3000*1024^2) 
 }
-
 
 completeNAvalues <- function(dataset, method){
   DT <- dataset
@@ -53,22 +53,23 @@ feature_transformation <- function(dataset,feature,action){
   return(dataset)
 }
 
+#-------run this line to load the libraries--------
 loadLibraries()
+
+#------------UI----------------
 ui <- fluidPage(
   useShinyjs(),
   # Application title
   titlePanel("Descriptive statistics of choosen Data"),
+  #UI
   tabsetPanel(id = "myApp",
-              #----------------------Demographics
+              #----------------------Upload data
               tabPanel("Upload data", 
                        fluidPage(
                          fluidRow(
                            # Sidebar with a file input 
                            sidebarLayout(
-                             
                              sidebarPanel( wellPanel(
-                               #fileInput("filePath","Choose File", buttonLabel = "Browse...",
-                               #          placeholder = "No file selected"),
                                fileInput("filePath", "Choose CSV File",
                                          multiple = FALSE,
                                          placeholder = "No file selected",
@@ -79,7 +80,6 @@ ui <- fluidPage(
                                tags$hr(),
                                checkboxInput("header", "Header", TRUE)
                              )),
-                             
                              # Show a table with all the data
                              mainPanel(
                                DT::dataTableOutput("allDataTable")
@@ -99,8 +99,6 @@ ui <- fluidPage(
                          
                        )#fluid page
               ), #tabset panel upload data
-              #conditionalPanel(condition = "input.next1",
-              # , #tabset panel Missing Values
               type = "tabs"), #all tabsets panel
   fluidRow(
     tags$footer(id="adVisu",
@@ -108,7 +106,7 @@ ui <- fluidPage(
   )#footer
 )
 
-
+#-----------server function------------
 server <- function(input, output, session){
   options(shiny.maxRequestSize=3000*1024^2) 
   values <- reactiveValues(loadFlag=TRUE, nextB1=FALSE)
@@ -141,11 +139,12 @@ server <- function(input, output, session){
     if ((is.null(input$filePath))) return(NULL)
     values$nextB1 <- TRUE
     n_rows = length(count.fields(input$filePath$datapath))
-    return(read_batch_with_progress(input$filePath$datapath,n_rows,15))
+    out <- read_batch_with_progress(input$filePath$datapath,n_rows,15)
+    out[out=='NA'] <- NA
+    return(out)
   })
   
   observe({
-    values$originData <- getData()
     values$data <- getData()
   })
   
@@ -208,18 +207,22 @@ server <- function(input, output, session){
                         ),
                         br(),
                         verbatimTextOutput("omitText1"),
+                        h6("NA data"),
                         verbatimTextOutput("omitText2"),
-                        verbatimTextOutput("omitText3")
+                        h6("All data"),
+                        verbatimTextOutput("omitText3"),
+                        h6("Completed data"),
+                        verbatimTextOutput("omitText4")
+                        
                       )),
                       tabPanel("Assign Specific Value", fluidPage(
                         h5("Choose a specific method / value to assign in missing values"),
                         h6("Only numeric features will be assigned with your choice while categorial features will get 'Missing Value' value."),
-                        tags$b("This action can't be undone, re-upload data for cancle this action"),
                         radioButtons("TypeToFillNA", " ", 
                                      choices = c("0", "-9999","mean", "median")),
                         flowLayout(
-                          actionButton("specificValueGo", "GO")
-                          #actionButton("resetSpecificValueGo", "Undo")
+                          actionButton("specificValueGo", "GO"),
+                          actionButton("resetSpecificValueGo", "Undo")
                         ),
                         br(),
                         verbatimTextOutput("specificValueNAText1"),
@@ -243,34 +246,56 @@ server <- function(input, output, session){
   #--------------missing values---------------
   values <- reactiveValues(omitFlag = FALSE, csFlag = FALSE, omit="", csResetFlag=FALSE, svText= "")
   
-  
   output$missingValues <- renderPlot({
     req(input$filePath)
     aggr(values$data,prop = T, numbers = T)
   })
   
   #-------------------------------------------omit-----------------------------------------------
-  df <- reactive({
-    ifelse(values$omitFlag,
-           out <- na.omit(values$data),
-           ifelse(values$csFlag,
-                  out <- completeNAvalues(values$data, input$TypeToFillNA),
-                  out <- values$data))
-    return(out)
+  completedData <- reactive({
+    req(input$filePath)
+    
+    new_DF <- na.omit(values$data)
+    return(new_DF)
   })
+  
+  NAdata <- reactive({
+    req(input$filePath)
+    
+    new_DF <- values$data[rowSums(is.na(values$data)) > 0,]
+    return(new_DF)    
+  })
+  
+  observe({
+    req(input$filePath)
+    
+    values$completedData <- completedData()
+    values$NAdata <- NAdata()
+    #values$currentData <- values$data
+    if(is.null(NAdata())){
+      values$omit <- "Your data is completed! :)"
+      values$svText <- "Your data is completed! :)"
+      values$ready <- TRUE
+    } else {
+      values$omit <- "Your data contains missing values.."
+      values$svText <- "Your data contains missing values.."
+      values$ready <- FALSE
+    }
+  })
+  
+  
   
   observeEvent(input$omitNA, {
     req(input$filePath)
-    if(values$csFlag){
-      values$omit <- "You already completed your data!"
-    }else {
-      if(any(is.na(df()))){
+    if(!values$ready){
+      if(values$csFlag){
+        values$omit <- "You allready completed your data. No NA in the data.."
+      } else {
         values$omit <- "All rows with missing values omitted sucssesfuly"
         values$omitFlag <- TRUE
       }
-      else{
-        values$omit <- "Your data is complete! No NA in the data.."
-      }
+    } else{
+      values$omit <- "You don't have missing values, remember? ;"
     }
   })
   
@@ -286,25 +311,90 @@ server <- function(input, output, session){
     req(input$filePath)
     values$omit
   })
+  
+  sj <- reactive({
+    summary(NAdata())
+  })
+  
+  output$omitText2 <- renderPrint({
+    req(input$filePath)
+    sj()
+  })
+  
+  sc <- reactive({
+    completedData
+    summary(df())
+  })
+  
+  
+  output$omitText3 <- renderPrint({
+    req(input$filePath)
+    sc()
+  })
+  
+  se <- reactive({
+    summary(completedData())
+  })
+  
+  
+  output$omitText4 <- renderPrint({
+    req(input$filePath)
+    se()
+  })
+  
   #-------------------------------------------Specific Value completion-----------
   
   observeEvent(input$specificValueGo, {
     req(input$filePath)
-    if(values$omitFlag){
-      values$svText <- "You omitted your missing data, you can undo this action first and try again"
-    }else{
-      if(any(is.na(df()))){
+    if(!values$ready){
+      if(values$omitFlag){
+        values$svText <- "You allready ommited your missing data. No NA in the data.."
+      } else {
         values$svText <- paste("All rows with missing values omitted sucssesfuly with", input$TypeToFillNA)
         values$csFlag <- TRUE
-      }else{
-        values$svText <- "Your data is complete! No NA in the data.."
       }
+    } else{
+      values$svText <- "You don't have missing values, remember? ;"
+    }
+  })
+  
+  observeEvent(input$resetSpecificValueGo, {
+    req(input$filePath)
+    if(values$csFlag){
+      values$svText <- "Undo action, current data is the origin dataset"
+      values$csFlag <- FALSE
     }
   })
   
   output$specificValueNAText1 <- renderPrint({
     req(input$filePath)
     values$svText
+  })
+  
+  jfkgd <- reactive({
+    summary(df())
+  })
+  output$specificValueNAText2 <- renderPrint({
+    req(input$filePath)
+    jfkgd()
+  })
+  
+  df <- reactive({
+    if(values$ready){
+      out <- values$data
+    }else{ # 3 possible case: 
+      if(!values$omitFlag){
+        if(!values$csFlag){ # The user didn't act at any method with the missing values
+          out <- values$data
+        }else {#(values$csFlag) - the user completed missing values
+          data <- rbindlist(list(values$completedData, values$NAdata)) 
+          out <- completeNAvalues(data, input$TypeToFillNA)
+        }
+      } else { # The user ommited rows with missing values
+        out <- values$completedData
+      }
+    }
+    return(out)
   })
   
   #-----inset tab # 3 - Target Variable
@@ -592,5 +682,5 @@ server <- function(input, output, session){
 }
 
 
-#--------- Run the application 
+#--------- Run the application -----------
 shinyApp(ui = ui, server = server)
