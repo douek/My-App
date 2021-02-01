@@ -26,7 +26,8 @@ Feature Selection - in this section the user chooses the features to the model a
   
 Outliers - in this section the user can deep in his search for outlier and integrity issues in the data in two ways:
   1. applying a condition on a specific variable - choosing a requested condition and press go. 
-  2. visual choosing - the user chooses from the graph the wanted observations by double-clicking it. 
+  2. visual choosing - the user chooses from the graph the wanted observations by double-clicking it.
+  
   in both cases, a table with the relevant observation will upload below and the user can add examine combination with more filters to the other variables. the user can choose rows from the table by clicking on them and can omit them from the dataset. 
   
 Save - the user can download the final dataset. 
